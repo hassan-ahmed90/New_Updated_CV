@@ -22,8 +22,6 @@ from modules.llm_engine import (
     check_ollama_available,
     get_installed_models,
     set_model_name,
-    parse_jd,
-    extract_cv_data,
     match_cv_to_requirements,
     LLMError,
 )
