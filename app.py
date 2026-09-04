@@ -1,9 +1,23 @@
 # app.py
 import re
+import time
+import base64
 from datetime import datetime
 
 import streamlit as st
 import pandas as pd
+
+
+def display_pdf(pdf_bytes):
+    """Render an embedded base64 PDF viewer inside Streamlit."""
+    base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+    pdf_display = (
+        f'<iframe src="data:application/pdf;base64,{base64_pdf}#toolbar=0" '
+        f'width="100%" height="750" type="application/pdf" '
+        f'style="border-radius: 8px; border: 1px solid #ccd0d5; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">'
+        f'</iframe>'
+    )
+    st.markdown(pdf_display, unsafe_allow_html=True)
 
 from modules.extractor import extract_text
 from modules.cleaner import clean_text, normalize_for_skills
@@ -24,12 +38,6 @@ st.markdown("Upload a Job Description and CVs — get ranked results instantly!"
 st.divider()
 
 # ── Session state init ───────────────────────────────────────
-# FIX: results/rejected used to live only inside the button's
-# `if st.button(...)` block. Streamlit reruns the whole script on
-# every interaction (including clicking "Download CSV"), and on
-# that rerun the button is False again — so the results table and
-# download button vanished immediately after being clicked. Now
-# everything the user needs to see survives across reruns.
 if "results" not in st.session_state:
     st.session_state.results = None
 if "rejected" not in st.session_state:
@@ -38,6 +46,8 @@ if "cv_count" not in st.session_state:
     st.session_state.cv_count = 0
 if "profile" not in st.session_state:
     st.session_state.profile = None
+if "eval_time" not in st.session_state:
+    st.session_state.eval_time = None
 
 
 # ── JD requirement detectors ─────────────────────────────────
@@ -92,6 +102,9 @@ if st.button("▶️ Start Evaluation", use_container_width=True):
         st.error("❌ Please upload at least one CV!")
         st.stop()
 
+    start_time = time.time()
+    time_placeholder = st.empty()
+
     results = []
     rejected = []
 
@@ -102,7 +115,10 @@ if st.button("▶️ Start Evaluation", use_container_width=True):
         progress = st.progress(0)
 
         for i, cv_file in enumerate(cv_files):
-
+            elapsed_now = time.time() - start_time
+            time_placeholder.markdown(
+                f"⏱️ **Evaluating {i + 1}/{len(cv_files)}:** `{cv_file.name}` | Elapsed: **{elapsed_now:.1f}s**"
+            )
             ext = cv_file.name.split('.')[-1].lower()
             try:
                 raw_text = extract_text(cv_file, ext)
@@ -177,7 +193,7 @@ if st.button("▶️ Start Evaluation", use_container_width=True):
                     "degree_years": degree_years_str or "None Detected",
                     "is_graduate": "📖 No (Undergraduate)" if still_enrolled else "No Degree Found",
                     "candidate_fields": candidate_fields_str,
-                    "new_grad_flag": "🎒 Undergraduate" if still_enrolled else "📄 No Degree",
+                    "new_grad_flag": "Degree in Progress" if still_enrolled else "📄 No Degree",
                     "matched_skills": matched_skills_str,
                     "education_detail": "❌ No Bachelor's Degree found (JD requires one)",
                     "reason": "❌ No Bachelor's Degree found (JD requires one)",
@@ -197,7 +213,7 @@ if st.button("▶️ Start Evaluation", use_container_width=True):
                     "degree_years": degree_years_str,
                     "is_graduate": "📖 No (Undergraduate)",
                     "candidate_fields": candidate_fields_str,
-                    "new_grad_flag": "🎒 Undergraduate",
+                    "new_grad_flag": "Degree in Progress",
                     "matched_skills": matched_skills_str,
                     "education_detail": "❌ Still enrolled (degree in progress) — JD requires graduates only",
                     "reason": "❌ Still enrolled (degree not yet completed) — JD requires graduates only",
@@ -222,6 +238,7 @@ if st.button("▶️ Start Evaluation", use_container_width=True):
 
             score, matched, quality_map = match_skills(profile.skills, cv_skills, raw_text)
 
+            missing_skills = sorted(profile.skills - matched)
             missing_must_haves = sorted(profile.must_have_skills - matched)
 
             results.append({
@@ -229,6 +246,7 @@ if st.button("▶️ Start Evaluation", use_container_width=True):
                 "score": score,
                 "total_jd_skills": len(profile.skills),
                 "matched_skills": ", ".join(sorted(matched)[:10]) if matched else "None",
+                "missing_skills": missing_skills,
                 "missing_must_haves": missing_must_haves,
                 "quality_map": quality_map,
                 "candidate_fields": candidate_fields_str,
@@ -242,11 +260,20 @@ if st.button("▶️ Start Evaluation", use_container_width=True):
             })
             progress.progress((i + 1) / len(cv_files))
 
+        total_time = round(time.time() - start_time, 2)
+        total_minutes = round(total_time / 60, 1)
+        min_unit = "minute" if total_minutes == 1.0 else "minutes"
+        st.session_state.eval_time = total_time
+        time_placeholder.success(
+            f"⚡ **Evaluation Completed:** Total time **{total_minutes} {min_unit}** for **{len(cv_files)}** CVs ({total_time:.1f}s)"
+        )
+
     # Save into session_state so results survive reruns (e.g. clicking Download)
     st.session_state.results = results
     st.session_state.rejected = rejected
     st.session_state.cv_count = len(cv_files)
     st.session_state.profile = profile
+    st.session_state.cv_files_map = {f.name: (f.getvalue(), f.name.split('.')[-1].lower()) for f in cv_files}
 
 st.divider()
 
@@ -256,6 +283,12 @@ if st.session_state.results is not None:
     rejected = st.session_state.rejected
     cv_count = st.session_state.cv_count
     profile = st.session_state.profile
+    eval_time = st.session_state.get("eval_time")
+
+    if eval_time is not None:
+        eval_minutes = round(eval_time / 60, 1)
+        min_unit = "minute" if eval_minutes == 1.0 else "minutes"
+        st.caption(f"⏱️ **Total time {eval_minutes} {min_unit} for {cv_count} CVs** ({eval_time:.1f}s)")
 
     # ── What the system understood the JD to require ─────
     # Scores are only as good as this reading of the JD, so show it
@@ -286,7 +319,7 @@ if st.session_state.results is not None:
 
     for r in ranked:
         if r.get('still_enrolled'):
-            r['new_grad_flag'] = "🎒 Undergraduate"
+            r['new_grad_flag'] = "Degree in Progress"
         elif r.get('cv_years', 0) >= 1.0:
             r['new_grad_flag'] = "💼 Experienced"
         elif r.get('is_new_grad'):
@@ -306,20 +339,34 @@ if st.session_state.results is not None:
         if "Ideal" in r.get('experience_detail', ''):
             r['experience_detail'] = f"{r.get('cv_years', 0.0)} yrs"
     all_unsuitable_and_rejected = unsuitable + (rejected or [])
+    for r in all_unsuitable_and_rejected:
+        r['category'] = "❌ Not Suitable"
+        r['rank'] = "—"
 
     table_cols = [
         'rank', 'name', 'match_pct', 'category',
-        'skills_col',
         'experience_detail',
-        'degree_years', 'is_graduate', 'candidate_fields',
-        'new_grad_flag', 'matched_skills', 'education_detail'
+        'degree_years', 'candidate_fields',
+        'new_grad_flag', 'matched_skills'
     ]
     col_names = [
         'Rank', 'CV File', 'Match %', 'Category',
-        'Skills',
         'Experience',
-        'Degrees & Years', 'Is Graduate', 'Graduate Field(s)',
-        'Profile', 'Matched Skills', 'Matched Education'
+        'Degrees & Years', 'Graduate Field(s)',
+        'Profile', 'Matched Skills'
+    ]
+
+    rejected_table_cols = [
+        'name', 'match_pct', 'category',
+        'experience_detail',
+        'degree_years', 'candidate_fields',
+        'new_grad_flag', 'matched_skills'
+    ]
+    rejected_col_names = [
+        'CV File', 'Match %', 'Category',
+        'Experience',
+        'Degrees & Years', 'Graduate Field(s)',
+        'Profile', 'Matched Skills'
     ]
 
     def color_row(val):
@@ -345,12 +392,12 @@ if st.session_state.results is not None:
         )
         st.divider()
 
-    # ── 2. Not Suitable & Rejected Candidates Table ──────────
+    # ── 2. Rejected Candidates Table ─────────────────────────
     if all_unsuitable_and_rejected:
-        st.header("🚫 Not Suitable & Rejected Candidates")
+        st.header("🚫 Rejected Candidates")
         st.caption(f"{len(all_unsuitable_and_rejected)} candidate(s) did not meet suitability thresholds or mandatory requirements.")
-        df_unsuitable = pd.DataFrame(all_unsuitable_and_rejected)[table_cols]
-        df_unsuitable.columns = col_names
+        df_unsuitable = pd.DataFrame(all_unsuitable_and_rejected)[rejected_table_cols]
+        df_unsuitable.columns = rejected_col_names
 
         st.dataframe(
             df_unsuitable.style.map(color_row, subset=['Category']),
@@ -361,14 +408,13 @@ if st.session_state.results is not None:
 
     # ── Summary metrics ──────────────────────────────────────
     if shortlisted or all_unsuitable_and_rejected:
-        col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         col1.metric("Total CVs", cv_count)
-        col2.metric("🚫 Rejected", len(rejected or []))
+        col2.metric("🚫 Rejected", len(all_unsuitable_and_rejected))
         col3.metric("🎓 New Grads", sum(1 for r in ranked if r.get('is_new_grad')))
         col4.metric("✅ Highly Suitable", sum(1 for r in shortlisted if "Highly" in r.get('category', '')))
         col5.metric("🟢 Suitable", sum(1 for r in shortlisted if "Suitable" in r.get('category', '') and "Highly" not in r.get('category', '')))
         col6.metric("🟡 Moderate", sum(1 for r in shortlisted if "Moderate" in r.get('category', '')))
-        col7.metric("❌ Not Suitable", len(unsuitable))
 
         st.divider()
 
@@ -384,6 +430,89 @@ if st.session_state.results is not None:
             mime="text/csv",
             use_container_width=True
         )
+
+        st.divider()
+
+        # ── 3. Candidate Deep Dive & PDF Preview ─────────────────
+        st.header("🔍 Candidate Deep Dive & PDF Preview")
+        st.caption("Inspect matched/missing skills, score details, and the original PDF resume.")
+
+        cand_options = ["-- Select a Candidate to Inspect --"] + [r["name"] for r in all_export]
+        selected_cand_name = st.selectbox(
+            "Select a candidate to view full details & original resume:",
+            options=cand_options,
+            index=0
+        )
+
+        if selected_cand_name and selected_cand_name != "-- Select a Candidate to Inspect --":
+            cand = next((r for r in all_export if r["name"] == selected_cand_name), None)
+
+            if cand:
+                st.markdown(f"### 📄 **{cand['name']}** — `{cand.get('match_pct', '0%')}` ({cand.get('category', '')})")
+
+                # Metric Cards
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Overall Match", cand.get("match_pct", "0%"))
+                m2.metric("Experience", f"{cand.get('cv_years', 0.0)} yrs")
+                m3.metric("Degrees & Status", cand.get("degree_years", "—"))
+                m4.metric("Role Alignment", cand.get("current_title", "—") or "—")
+
+                # Tabs
+                tab_breakdown, tab_pdf = st.tabs([
+                    "📊 Skills & Component Breakdown",
+                    "👁️ Original Resume Document"
+                ])
+
+                with tab_breakdown:
+                    col_l, col_r = st.columns(2)
+                    with col_l:
+                        st.markdown("#### ✅ Matched Requirements")
+                        matched_str = cand.get("matched_skills", "")
+                        if matched_str and matched_str not in ("None", "—"):
+                            for s in matched_str.split(", "):
+                                st.success(f"✓ **{s}**")
+                        else:
+                            st.info("No matching requirements found.")
+
+                    with col_r:
+                        st.markdown("#### ❌ Missing JD Skills")
+                        missing_skills = cand.get("missing_skills", [])
+                        if missing_skills:
+                            must_haves = cand.get("missing_must_haves", [])
+                            for s in missing_skills:
+                                if s in must_haves:
+                                    st.error(f"✗ **{s}** *(Mandatory Requirement ⚠️)*")
+                                else:
+                                    st.error(f"✗ **{s}**")
+                        else:
+                            st.success("🎉 Candidate covers 100% of the JD skills!")
+
+                    st.markdown("---")
+                    st.markdown("#### 📈 Component Fit Details")
+                    comp_cols = st.columns(4)
+                    comp_cols[0].markdown(f"**Skills Score**: `{cand.get('skills_col', '—')}`")
+                    comp_cols[1].markdown(f"**Experience Fit**: `{cand.get('experience_detail', '—')}`")
+                    comp_cols[2].markdown(f"**Education Field**: `{cand.get('candidate_fields', '—')}`")
+                    comp_cols[3].markdown(f"**Target Role**: `{cand.get('current_title', '—')}`")
+
+                with tab_pdf:
+                    st.markdown("#### 📑 Original Resume Document")
+                    files_map = st.session_state.get("cv_files_map", {})
+                    file_tuple = files_map.get(selected_cand_name)
+                    if file_tuple:
+                        raw_bytes, ext = file_tuple
+                        if ext == "pdf":
+                            try:
+                                display_pdf(raw_bytes)
+                            except Exception as e:
+                                st.warning(f"Could not render PDF preview: {e}")
+                        else:
+                            st.info(f"File format `.{ext}` preview:")
+                            st.text(raw_bytes.decode('utf-8', errors='ignore')[:3000])
+                    else:
+                        st.info("Upload CVs in Step 2 to enable interactive PDF viewing.")
+        else:
+            st.info("👆 Please select a candidate from the dropdown above to view their evaluation details and original resume.")
     else:
         st.error("❌ No candidates evaluated.")
 

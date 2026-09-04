@@ -81,7 +81,7 @@ def _call_llm_json(system_prompt: str, user_prompt: str, temperature: float = 0.
                     "options": {
                         "temperature": temperature,
                         "num_ctx": 1024,     # optimized context window for fast CPU processing
-                        "num_predict": 800,  # ample headroom to prevent string truncation
+                        "num_predict": 120,  # lightweight token output for fast JSON skill array
                         "num_thread": 4,     # utilize all physical CPU cores
                     },
                 },
@@ -149,6 +149,7 @@ STRICT EVALUATION RULES:
 1. ONLY include a requirement in "matched_skills" if the candidate's CV text explicitly mentions or clearly demonstrates it.
 2. If the candidate is in an unrelated field (e.g., Account Management, Fashion Design, Hospitality, Bar Management, Sales, Nursing) and has none of the technical skills, return an empty list: {"matched_skills": []}.
 3. DO NOT guess, hallucinate, or repeat the job requirements blindly. Every match is strictly verified against the CV text.
+4. Do NOT generate summaries, explanations, or prose text. Output ONLY the JSON array.
 
 Respond with ONLY valid JSON in this exact shape:
 {
@@ -163,6 +164,12 @@ def _extract_evidence_quote(skill: str, cv_text: str) -> str:
     if not cv_text or not skill:
         return ""
 
+    skill_lower = skill.strip().lower()
+    if skill_lower == "react":
+        from modules.skill_extractor import _is_react_skill
+        if not _is_react_skill(cv_text):
+            return ""
+
     escaped = re.escape(skill.strip())
     pattern = re.compile(rf"([^.\n\r•\-\|]*?\b{escaped}\b[^.\n\r•\-\|]*)", re.IGNORECASE)
     m = pattern.search(cv_text)
@@ -171,10 +178,10 @@ def _extract_evidence_quote(skill: str, cv_text: str) -> str:
         if len(quote) >= 3:
             return quote[:140]
 
-    # Check known aliases/components (e.g. MERN -> mongo/express/react/node)
+    # Check known aliases (e.g. RAG -> retrieval-augmented, MERN -> mern stack)
     aliases = {
-        "mern": [r"mongo(?:db)?", r"express(?:\.js)?", r"react(?:\.js)?", r"node(?:\.js)?"],
-        "mean": [r"mongo(?:db)?", r"express(?:\.js)?", r"angular", r"node(?:\.js)?"],
+        "mern": [r"\bmern\b", r"\bmern[\s-]stack\b"],
+        "mean": [r"\bmean\b", r"\bmean[\s-]stack\b"],
         "rag": [r"retrieval[\s-]augmented", r"vector[\s-]search", r"vector[\s-]database"],
         "nlp": [r"natural[\s-]language[\s-]processing"],
         "cv": [r"computer[\s-]vision"],
@@ -284,22 +291,6 @@ def _validate_match_schema(result: dict, jd_requirements: list, cv_text: str = "
             lacked_names.append(req)
 
     result["matches"] = final_matches
-
-    # Ensure overall summary exists and is free of literal prompt templates
-    summary = (result.get("career_summary") or result.get("overall_summary") or "").strip()
-    is_placeholder = (
-        not summary
-        or "Matches X" in summary
-        or "Lacks Y" in summary
-        or "(Career Alignment: Role)" in summary
-    )
-
-    if is_placeholder:
-        matched_str = ", ".join(matched_names[:6]) if matched_names else "limited JD skills"
-        lacked_str = ", ".join(lacked_names[:4]) if lacked_names else "none"
-        result["overall_summary"] = f"Demonstrates strong alignment in {matched_str}. Lacks explicit coverage in {lacked_str}."
-    else:
-        result["overall_summary"] = summary
 
 
 

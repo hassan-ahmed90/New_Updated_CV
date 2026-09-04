@@ -17,7 +17,7 @@ rank order and the category disagree in earlier versions.
 THRESHOLDS = {
     "Highly Suitable": 75,   # 75% and above
     "Suitable": 55,          # 55% to 74%
-    "Moderate": 35,          # 35% to 54%
+    "Moderate": 25,          # 35% to 54%
     "Not Suitable": 0,       # below 35%
 }
 
@@ -33,8 +33,8 @@ THRESHOLDS = {
 # flows to whatever the JD did specify.
 
 WEIGHTS = {
-    "skills": 0.55,
-    "experience": 0.22,
+    "skills": 0.45,
+    "experience": 0.32,
     "education": 0.13,
     "title": 0.10,
 }

@@ -512,8 +512,13 @@ DOMAIN_GROUPS = {
     },
     "business administration": {
         "core":    ["business administration", "business management", "project management"],
-        "related": ["human resource management", "marketing management", "supply chain management", "finance", "accounting", "economics"],
+        "related": ["human resource management", "marketing management", "marketing", "advertising", "supply chain management", "finance", "accounting", "economics", "hospitality management", "hotel management"],
         "broad":   ["information systems", "business analytics"]
+    },
+    "design": {
+        "core":    ["fashion design", "graphic design", "industrial design", "interior design", "textile design"],
+        "related": ["fine arts", "visual arts", "architecture"],
+        "broad":   ["media studies", "communication"]
     },
     "finance": {
         "core":    ["finance", "financial management", "accounting", "banking"],
@@ -680,7 +685,14 @@ def extract_education(text: str) -> set:
             pattern = r'(?<![a-z])' + re.escape(field) + r'(?![a-z])'
             if re.search(pattern, window_lower):
                 found.add(field)
-    return found
+
+    # Prune redundant generic parent substrings (e.g. keep "fashion design", drop "design")
+    pruned = set()
+    for f in found:
+        if not any(f != other and f in other for other in found):
+            pruned.add(f)
+
+    return pruned
 
 
 def get_education_score(jd_field: str, cv_field: str) -> int:
@@ -718,10 +730,12 @@ def match_education(jd_education: set, cv_education: set):
 
 def extract_raw_degree_fields(text: str) -> list:
     """
-    Extract raw, unstructured field names (e.g. 'Petroleum Engineering')
+    Extract raw, unstructured field names (e.g. 'Petroleum Engineering',
+    'Hospitality Management', 'Advertising and Marketing')
     for display purposes, without restricting to DOMAIN_GROUPS.
     """
     section = _extract_education_section(text)
+    section_norm = re.sub(r'\s+', ' ', section)
     fields = []
 
     # 1. "Field of study:" label
@@ -731,18 +745,25 @@ def extract_raw_degree_fields(text: str) -> list:
         if line and len(line) > 2:
             fields.append(line)
 
-    # 2. Degree + "in" / "of"
+    # 2. Degree + "in" / "of" (including "Bachelor Degree in...", "Bachelor of Science in...")
     pattern = re.compile(
-        r'\b(?:bachelor(?:s|\'s)?|master(?:s|\'s)?|b\.?s\.?c|m\.?s\.?c|b\.?s|m\.?s|b\.?a|m\.?a|b\.?e|m\.?e|phd|bba|mba)\s+(?:of|in)\s+([^,\n\-\|]{3,40})',
+        r'\b(?:bachelor(?:s|\'s)?|master(?:s|\'s)?|b\.?s\.?c|m\.?s\.?c|b\.?s|m\.?s|b\.?a|m\.?a|b\.?e|m\.?e|phd|bba|mba)'
+        r'(?:\s+degree)?(?:\s+(?:of|in)\s+(?:science|arts|applied\s+science|engineering))?\s+(?:of|in)\s+([^,\-\|\n]{3,60})',
         re.IGNORECASE
     )
-    for match in pattern.finditer(section):
+    for match in pattern.finditer(section_norm):
         field = match.group(1).strip()
-        if field.lower().startswith("science in "):
-            field = field[11:].strip()
-        elif field.lower().startswith("arts in "):
-            field = field[8:].strip()
-        field = re.split(r'\b(?:at|from)\b|\b20\d{2}\b', field, flags=re.IGNORECASE)[0].strip()
+        if field.lower().startswith("science in"):
+            field = field[10:].strip()
+        elif field.lower().startswith("arts in"):
+            field = field[7:].strip()
+        # Cut off date ranges, month names, institutions, or years
+        field = re.split(
+            r'\b(?:at|from|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|june|july|august|september|october|november|december)\b|\b20\d{2}\b',
+            field,
+            flags=re.IGNORECASE
+        )[0].strip()
+        field = re.sub(r'\s+(?:and|&|or)$', '', field, flags=re.IGNORECASE).strip()
         if field and len(field) > 2:
             fields.append(field)
 
@@ -751,17 +772,19 @@ def extract_raw_degree_fields(text: str) -> list:
         r'\b([A-Za-z\s]{3,40})\s*\|\s*(?:bs[a-z]{0,4}|b\.?e|b\.?sc|b\.?tech|ms[a-z]{0,4}|m\.?sc|m\.?tech)\b',
         re.IGNORECASE
     )
-    for match in pipe_pattern.finditer(section):
+    for match in pipe_pattern.finditer(section_norm):
         field = match.group(1).strip()
         field = re.split(r'\b(?:at|from)\b|\b20\d{2}\b', field, flags=re.IGNORECASE)[0].strip()
+        field = re.sub(r'\s+(?:and|&|or)$', '', field, flags=re.IGNORECASE).strip()
         if field and len(field) > 2:
             fields.append(field)
 
     seen = set()
     unique_fields = []
     for f in fields:
-        f_title = f.title()
-        if f_title not in seen:
+        f_clean = f.strip().strip("-:,")
+        f_title = f_clean.title()
+        if f_title and f_title not in seen:
             seen.add(f_title)
             unique_fields.append(f_title)
 

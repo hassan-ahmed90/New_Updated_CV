@@ -20,7 +20,7 @@ SKILL_TEXT_PATTERNS = {
     "fine-tuning": [r"\b(?:fine[\s-]?tuning|finetuning|peft|lora)\b"],
     "nodejs": [r"\b(?:node(?:\.js)?|nodejs)\b"],
     "node.js": [r"\b(?:node(?:\.js)?|nodejs)\b"],
-    "react": [r"\b(?:react(?:\.js)?|reactjs)\b"],
+    "react": [r"\b(?:react(?:\.js)?|reactjs|react-native|react\s+native)\b"],
     "vue": [r"\b(?:vue(?:\.js)?|vuejs)\b"],
     "angular": [r"\b(?:angular(?:\.js)?|angularjs)\b"],
     "golang": [r"\b(?:golang|go\s+language)\b"],
@@ -44,6 +44,32 @@ SKILL_TEXT_PATTERNS = {
 }
 
 
+COMPOSITE_STACKS = {
+    "mern": [
+        ["mongodb", "mongoose"],
+        ["express", "express.js", "expressjs"],
+        ["react", "react.js", "reactjs", "react-native", "react native"],
+        ["nodejs", "node.js", "node"]
+    ],
+    "mean": [
+        ["mongodb", "mongoose"],
+        ["express", "express.js", "expressjs"],
+        ["angular", "angular.js", "angularjs"],
+        ["nodejs", "node.js", "node"]
+    ],
+    "lamp": [
+        ["linux"],
+        ["apache"],
+        ["mysql", "mariadb"],
+        ["php", "python", "perl"]
+    ],
+    "rag": [
+        ["vector search", "vector database", "pinecone", "chromadb", "faiss", "qdrant", "weaviate", "embeddings", "pgvector"],
+        ["llm", "langchain", "llamaindex", "llama index", "openai", "gemini", "claude", "transformers", "huggingface", "gpt", "rag", "prompt engineering", "langgraph"]
+    ]
+}
+
+
 def is_skill_in_text(skill: str, text: str = "", cv_skills: set = None) -> bool:
     """
     Returns True IF AND ONLY IF the skill or its valid alias is genuinely 
@@ -53,10 +79,22 @@ def is_skill_in_text(skill: str, text: str = "", cv_skills: set = None) -> bool:
         return False
         
     s_clean = skill.strip().lower()
+
+    if s_clean == "react":
+        from modules.skill_extractor import _is_react_skill
+        if cv_skills and "react" in cv_skills:
+            return True
+        return _is_react_skill(text) if text else False
     
     # Check cv_skills set
     if cv_skills and s_clean in cv_skills:
         return True
+
+    # Check composite stack deduction (e.g. Mongo + Express + React + Node -> MERN)
+    if s_clean in COMPOSITE_STACKS:
+        req_groups = COMPOSITE_STACKS[s_clean]
+        if all(any(is_skill_in_text(sub, text=text, cv_skills=cv_skills) for sub in group) for group in req_groups):
+            return True
 
     if not text:
         return False

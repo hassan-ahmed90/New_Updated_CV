@@ -27,6 +27,10 @@ STOPWORDS = {
     "communication", "collaboration", "problem", "problems", "solving",
     "space", "science", "survey", "data", "other", "with", "gnu",
     "octave", "topcat", "sdss", "wise", "astronomical",
+    # Role & structure words that are NOT standalone technical skills
+    "developer", "developers", "stack", "stacks", "development", "programmer",
+    "engineer", "engineers", "engineering", "designer", "designers",
+    "architect", "specialist", "administrator",
     # FIX: common words that were leaking into skills via capitalization
     "figure", "table", "section", "chapter", "page", "note", "see",
     "ref", "include", "includes", "including", "such", "like", "per",
@@ -315,12 +319,33 @@ def _is_noise(token: str) -> bool:
     )
 
 
+def _is_react_skill(text: str) -> bool:
+    """True if react is used as a technology/framework, not an English verb."""
+    if re.search(r'\b(?:react\.?js|reactjs|react-native|react\s+native|react\s+developer|react\s+framework|react\s+frontend|react\s+ui)\b', text, re.IGNORECASE):
+        return True
+    for m in re.finditer(r'\breact\b', text, re.IGNORECASE):
+        start = max(0, m.start() - 15)
+        before = text[start:m.start()].lower()
+        end = min(len(text), m.end() + 25)
+        after = text[m.end():end].lower()
+        if re.search(r'\b(?:to|will|can|could|must|and|shall|should|would)\s+$', before):
+            continue
+        if re.search(r'^\s*(?:to|with|punctually|quickly|promptly|defensively|immediately|appropriately|in\s+response|under\s+pressure|against|towards)\b', after):
+            continue
+        return True
+    return False
+
+
 def extract_skills(text: str) -> set:
     skills = set()
     text_lower = text.lower()
 
     # ── Step 1: Match known skills (word-boundary safe) ──
     for skill in KNOWN_SKILLS:
+        if skill == "react":
+            if _is_react_skill(text):
+                skills.add("react")
+            continue
         pattern = r'(?<![a-z\d])' + re.escape(skill) + r'(?![a-z\d])'
         if re.search(pattern, text_lower):
             skills.add(skill)
@@ -392,4 +417,52 @@ def extract_skills(text: str) -> set:
     # ── Step 6: Canonicalize synonyms ────────────────────
     # Done last so every path (vocabulary, capitals, slashes,
     # brackets) lands on the same canonical form.
-    return canonicalize(cleaned)
+    canonical = canonicalize(cleaned)
+
+    # ── Step 7: Infer Composite Stacks (MERN, MEAN, RAG, LAMP) ──
+    return infer_composite_stacks(canonical)
+
+
+def infer_composite_stacks(skills: set) -> set:
+    """
+    Infers composite stacks from component technologies.
+    e.g. MongoDB + Express + React + Node -> MERN
+    """
+    inferred = set(skills)
+
+    # 1. MERN Stack: Mongo + Express + React + Node
+    has_mongo = bool({"mongodb", "mongoose"} & inferred)
+    has_express = bool({"express", "express.js", "expressjs"} & inferred)
+    has_react = bool({"react", "react.js", "reactjs", "react-native", "react native"} & inferred)
+    has_node = bool({"nodejs", "node.js", "node"} & inferred)
+    if has_mongo and has_express and has_react and has_node:
+        inferred.add("mern")
+
+    # 2. MEAN Stack: Mongo + Express + Angular + Node
+    has_angular = bool({"angular", "angularjs", "angular.js"} & inferred)
+    if has_mongo and has_express and has_angular and has_node:
+        inferred.add("mean")
+
+    # 3. LAMP Stack: Linux + Apache + MySQL + (PHP/Python/Perl)
+    has_linux = "linux" in inferred
+    has_apache = "apache" in inferred
+    has_mysql = bool({"mysql", "mariadb"} & inferred)
+    has_lamp_lang = bool({"php", "python", "perl"} & inferred)
+    if has_linux and has_apache and has_mysql and has_lamp_lang:
+        inferred.add("lamp")
+
+    # 4. RAG Architecture: Vector DB / Search + LLM / GenAI Framework
+    has_vector = bool({"vector search", "vector database", "pinecone", "chromadb", "faiss", "qdrant", "weaviate", "milvus", "embeddings", "pgvector"} & inferred)
+    has_llm = bool({"llm", "langchain", "llamaindex", "llama index", "openai", "gemini", "claude", "transformers", "huggingface", "gpt", "rag", "prompt engineering", "langgraph"} & inferred)
+    if has_vector and has_llm:
+        inferred.add("rag")
+        inferred.add("vector search")
+
+    # 5. Full Stack: Frontend + Backend + Database
+    has_frontend = bool({"react", "vue", "angular", "html", "css", "next.js", "nuxt.js", "svelte"} & inferred)
+    has_backend = bool({"nodejs", "django", "flask", "fastapi", "spring boot", "laravel", "express"} & inferred)
+    has_db = bool({"sql", "mysql", "postgresql", "mongodb", "sqlite", "redis", "oracle", "sql server", "nosql"} & inferred)
+    if has_frontend and has_backend and has_db:
+        inferred.add("full stack")
+
+    return inferred

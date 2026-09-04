@@ -86,10 +86,10 @@ def experience_component(cv_years: float, profile, cv_titles: list = None,
     is_junior_role = profile.seniority in ("entry", "junior") or prefers_freshers
 
     # ── 1. Domain Relevance Factor ───────────────────────────
-    if quality_map and profile.skills:
+    if quality_map is not None and profile.skills:
         skill_relevance = sum(quality_map.get(s, 0.0) for s in profile.skills) / len(profile.skills)
     else:
-        skill_relevance = 0.5
+        skill_relevance = 0.0
 
     # Role/Title match fraction against target JD
     from modules.jd_profile import title_tokens
@@ -101,20 +101,29 @@ def experience_component(cv_years: float, profile, cv_titles: list = None,
                 title_relevance = sim
 
     raw_factor = 0.65 * skill_relevance + 0.35 * max(title_relevance, skill_relevance * 0.8)
-    domain_factor = max(0.30, min(1.0, raw_factor))
+    domain_factor = max(0.0, min(1.0, raw_factor))
     effective_years = cv_years * domain_factor
 
     # ── 2. Fresher / Trainee JD Handling ─────────────────────
     if prefers_freshers:
         if is_new_grad or cv_years <= 1.5:
-            value = max(0.95, domain_factor)
-            detail = f"{cv_years} yrs (Ideal Trainee/Fresher fit ✅)"
+            value = 0.95 * domain_factor
+            if domain_factor == 0.0:
+                detail = f"{cv_years} yrs (No domain relevance for Trainee role) ❌"
+            else:
+                detail = f"{cv_years} yrs (Ideal Trainee/Fresher fit ✅)"
         elif cv_years <= 3.0:
             value = 0.85 * domain_factor
-            detail = f"{cv_years} yrs (Junior profile for Trainee role)"
+            if domain_factor == 0.0:
+                detail = f"{cv_years} yrs (No domain relevance for Trainee role) ❌"
+            else:
+                detail = f"{cv_years} yrs (Junior profile for Trainee role)"
         else:
             value = 0.70 * domain_factor
-            detail = f"{cv_years} yrs (Overqualified for Trainee role)"
+            if domain_factor == 0.0:
+                detail = f"{cv_years} yrs (No domain relevance for Trainee role) ❌"
+            else:
+                detail = f"{cv_years} yrs (Overqualified for Trainee role)"
         return Component("experience", min(1.0, value), True, detail)
 
     # ── 3. Junior Role Handling ──────────────────────────────
@@ -151,8 +160,7 @@ def experience_component(cv_years: float, profile, cv_titles: list = None,
         mark = "🟡" if ratio >= 0.5 else "❌"
         detail = f"{cv_years} yrs ({round(effective_years, 1)} yrs relevant, needs {required:g}+) {mark}"
 
-    source = "stated" if profile.required_years > 0 else f"implied by '{profile.seniority}'"
-    return Component("experience", min(1.0, value), True, f"{detail} [{source}]")
+    return Component("experience", min(1.0, value), True, detail)
 
 
 def education_component(jd_fields, cv_fields) -> Component:

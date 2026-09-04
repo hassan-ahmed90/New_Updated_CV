@@ -164,17 +164,31 @@ def _merge_overlapping_intervals(intervals):
 #  COMPANY-LEVEL INTERVAL EXTRACTION
 # ═══════════════════════════════════════════════════════════
 
+_EDU_CERT_KEYWORD_RE = re.compile(
+    r'\b(?:bachelor|master|b\.?s\b|m\.?s\b|m\.?phil|ph\.?d|b\.?e\b|associate(?:\s+of|\s+degree)|'
+    r'degree|certificate|certification|certified|diploma|matric|intermediate|fsc|ics|'
+    r'coursework|dissertation|thesis)\b',
+    re.IGNORECASE
+)
+
+
 def _extract_intervals_from_section(section_text: str) -> list:
     """
     Parse every date range found in section_text and return a list
     of (abs_start, abs_end) tuples, one per company role.
     Sanity-check: only accept ranges between 1 month and 20 years.
+    Filters out dates belonging to academic degrees or certifications.
     """
     intervals = []
     seen = set()
 
     # Pass 1: Spelled-out Month-Year ranges  (Jun 2025 – Jul 2025)
     for m in _RANGE_MONTH_YEAR_RE.finditer(section_text):
+        ctx_before = section_text[max(0, m.start() - 100):m.start()]
+        ctx_after = section_text[m.end():min(len(section_text), m.end() + 60)]
+        if _EDU_CERT_KEYWORD_RE.search(ctx_before) or _EDU_CERT_KEYWORD_RE.search(ctx_after):
+            continue
+
         sm, sy, em, ey, present = m.groups()
         start_m, start_y = _parse_month_year(sm, sy)
 
@@ -192,6 +206,11 @@ def _extract_intervals_from_section(section_text: str) -> list:
 
     # Pass 2: Numeric MM/YYYY or DD/MM/YYYY ranges  (06/2025 – 07/2025)
     for m in _RANGE_NUMERIC_RE.finditer(section_text):
+        ctx_before = section_text[max(0, m.start() - 100):m.start()]
+        ctx_after = section_text[m.end():min(len(section_text), m.end() + 60)]
+        if _EDU_CERT_KEYWORD_RE.search(ctx_before) or _EDU_CERT_KEYWORD_RE.search(ctx_after):
+            continue
+
         # groups: (sm, sy, em, ey, present)
         sm, sy, em, ey, present = m.groups()
         try:
@@ -215,6 +234,11 @@ def _extract_intervals_from_section(section_text: str) -> list:
     # Pass 3: Year-only ranges — fallback if nothing found yet
     if not intervals:
         for m in _RANGE_YEAR_ONLY_RE.finditer(section_text):
+            ctx_before = section_text[max(0, m.start() - 100):m.start()]
+            ctx_after = section_text[m.end():min(len(section_text), m.end() + 60)]
+            if _EDU_CERT_KEYWORD_RE.search(ctx_before) or _EDU_CERT_KEYWORD_RE.search(ctx_after):
+                continue
+
             sy, ey, present = m.groups()
             try:
                 start_y = int(sy)
