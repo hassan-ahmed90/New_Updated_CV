@@ -602,9 +602,9 @@ def _extract_education_section(text: str) -> str:
         re.IGNORECASE
     )
     heading_confirm_re = re.compile(
-        r'\b(university|college|institute|institution|bachelor|master|'
+        r'\b(university|college|institute|institution|diploma|certificate|matric|fsc|intermediate|bachelor|master|'
         r'b\.?e\b|b\.?sc|bs\b|bsse|bscs|bsit|bsee|bsce|bsai|bsds|bscy|bsis|degree|gpa|cgpa|'
-        r'20\d{2}\s*[-–—]\s*20\d{2}|20\d{2}\s*[-–—]\s*present|'
+        r'20\d{2}\s*[-–—]\s*20\d{2}|20\d{2}\s*[-–—]\s*present|20\d{2}|'
         r'software|computer|engineering|science|technology)\b',
         re.IGNORECASE
     )
@@ -670,7 +670,10 @@ def extract_education(text: str) -> set:
     windows += [section[a: a + _FIELD_LABEL_WINDOW] for a in field_label_ends]
 
     if not windows:
-        windows = [section]
+        if section != text:
+            windows = [section]
+        else:
+            windows = []
 
     all_fields = set()
     for domain, levels in DOMAIN_GROUPS.items():

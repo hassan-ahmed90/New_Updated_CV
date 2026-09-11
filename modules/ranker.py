@@ -42,6 +42,7 @@ def score_candidate(candidate, profile):
     coverage = scoring.must_have_coverage(profile.must_have_skills, quality_map)
     combined_pct, notes = scoring.combine(
         components,
+        cv_years=candidate.get("cv_years", 0.0),
         is_new_grad=candidate.get("is_new_grad", False),
         profile=profile,
         must_have_coverage=coverage,

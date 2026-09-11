@@ -38,6 +38,7 @@ from modules.llm_engine import (
     get_installed_models,
     set_model_name,
     match_cv_to_requirements,
+    extract_evidence_quote,
     LLMError,
 )
 
@@ -205,18 +206,23 @@ if st.button("▶️ Start AI Evaluation", use_container_width=True):
 
             cleaned = clean_text(raw_text)
 
-            # ── Education Fields (Domain & Raw Fallback without LLM) ──
-            cv_edu = extract_education(cleaned)
-            if cv_edu:
-                candidate_fields_str = ", ".join(cv_edu).title()
-            else:
-                raw_fields = extract_raw_degree_fields(raw_text)
-                candidate_fields_str = ", ".join(raw_fields).title() if raw_fields else "None Detected"
-
             # ── Degree Years & Completion Status (without LLM) ────────
             degree_years = extract_degree_years(raw_text)
             degree_years_str = format_degree_years(degree_years)
             still_enrolled = degree_years.get("bachelors_in_progress", False)
+            has_deg = has_bachelors(raw_text) or bool(degree_years)
+
+            # ── Education Fields (Domain & Raw Fallback without LLM) ──
+            if has_deg:
+                cv_edu = extract_education(cleaned)
+                if cv_edu:
+                    candidate_fields_str = ", ".join(cv_edu).title()
+                else:
+                    raw_fields = extract_raw_degree_fields(raw_text)
+                    candidate_fields_str = ", ".join(raw_fields).title() if raw_fields else "None Detected"
+            else:
+                cv_edu = set()
+                candidate_fields_str = "None Detected"
 
             # ── Extract Experience, Titles & Skills ───────────────────
             cv_years = extract_experience_years(raw_text)
@@ -279,11 +285,25 @@ if st.button("▶️ Start AI Evaluation", use_container_width=True):
                 and not has_higher
             )
 
-            # ── LLM Intelligent Matching & Evidence Quotation (Parallel) ──
+            # Fast verified text matching as baseline & pre-filtering gate
+            fast_score, fast_matched, fast_quality_map = match_skills(profile.skills, cv_skills, raw_text)
+
+            # ── LLM Intelligent Matching & Evidence Quotation (Early Pre-Filtering) ──
             used_llm_for_cv = False
             llm_evidence_list = []
 
-            if use_llm and jd_requirements:
+            # Determine whether this CV actually needs LLM evaluation:
+            # 1. Skip if 0 skills matched (clear mismatch - avoids ~12s wasted on Ollama)
+            # 2. Skip if all skills are already 100% cleanly matched (no ambiguity)
+            # 3. Only run LLM for borderline candidates with partial matches where semantic reasoning helps
+            needs_llm = (
+                use_llm
+                and jd_requirements
+                and len(fast_matched) > 0
+                and len(fast_matched) < len(profile.skills)
+            )
+
+            if needs_llm:
                 try:
                     match_result = match_cv_to_requirements(
                         jd_requirements,
@@ -328,8 +348,16 @@ if st.button("▶️ Start AI Evaluation", use_container_width=True):
                     used_llm_for_cv = False
 
             if not used_llm_for_cv:
-                # Fast verified text matching
-                score, matched, quality_map = match_skills(profile.skills, cv_skills, raw_text)
+                # Fast verified text matching fallback & instant zero/perfect bypass
+                score, matched, quality_map = fast_score, fast_matched, fast_quality_map
+                for s in sorted(matched):
+                    quote = extract_evidence_quote(s, raw_text)
+                    llm_evidence_list.append({
+                        "requirement": s,
+                        "type": "exact match",
+                        "evidence": quote if quote else f"Matched skill: {s}",
+                        "reasoning": "Directly verified via CV keywords and section extraction."
+                    })
 
             missing_skills = sorted(profile.skills - matched)
             missing_must_haves = sorted(profile.must_have_skills - matched)

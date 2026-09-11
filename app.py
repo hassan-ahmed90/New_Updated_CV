@@ -163,14 +163,19 @@ if st.button("▶️ Start Evaluation", use_container_width=True):
 
             cleaned = clean_text(raw_text)
 
-            # ── Education Fields (all fields found in CV) ──
-            cv_edu = extract_education(cleaned)
-            candidate_fields_str = ", ".join(cv_edu).title() if cv_edu else "None Detected"
-
             # ── Per-degree graduation years ───────────────
             degree_years = extract_degree_years(raw_text)
             degree_years_str = format_degree_years(degree_years)
             still_enrolled = degree_years.get("bachelors_in_progress", False)
+            has_deg = has_bachelors(raw_text) or bool(degree_years)
+
+            # ── Education Fields (all fields found in CV) ──
+            if has_deg:
+                cv_edu = extract_education(cleaned)
+                candidate_fields_str = ", ".join(cv_edu).title() if cv_edu else "None Detected"
+            else:
+                cv_edu = set()
+                candidate_fields_str = "None Detected"
 
             # ── Raw measurements ──────────────────────────
             cv_years = extract_experience_years(raw_text)

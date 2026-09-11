@@ -83,7 +83,6 @@ def experience_component(cv_years: float, profile, cv_titles: list = None,
     """
     required = profile.effective_required_years
     prefers_freshers = profile.prefers_freshers or profile.seniority == "entry"
-    is_junior_role = profile.seniority in ("entry", "junior") or prefers_freshers
 
     # ── 1. Domain Relevance Factor ───────────────────────────
     if quality_map is not None and profile.skills:
@@ -106,59 +105,55 @@ def experience_component(cv_years: float, profile, cv_titles: list = None,
 
     # ── 2. Fresher / Trainee JD Handling ─────────────────────
     if prefers_freshers:
-        if is_new_grad or cv_years <= 1.5:
-            value = 0.95 * domain_factor
-            if domain_factor == 0.0:
-                detail = f"{cv_years} yrs (No domain relevance for Trainee role) ❌"
-            else:
-                detail = f"{cv_years} yrs (Ideal Trainee/Fresher fit ✅)"
-        elif cv_years <= 3.0:
-            value = 0.85 * domain_factor
-            if domain_factor == 0.0:
-                detail = f"{cv_years} yrs (No domain relevance for Trainee role) ❌"
-            else:
-                detail = f"{cv_years} yrs (Junior profile for Trainee role)"
-        else:
-            value = 0.70 * domain_factor
-            if domain_factor == 0.0:
-                detail = f"{cv_years} yrs (No domain relevance for Trainee role) ❌"
-            else:
-                detail = f"{cv_years} yrs (Overqualified for Trainee role)"
-        return Component("experience", min(1.0, value), True, detail)
-
-    # ── 3. Junior Role Handling ──────────────────────────────
-    if is_junior_role:
-        target_years = max(1.0, required)
-        if 0.3 <= effective_years <= 3.0:
+        if cv_years <= 1.5:
             value = 1.0 * domain_factor
-            detail = f"{cv_years} yrs (Ideal Junior fit ✅)"
-        elif effective_years < 0.3:
-            ratio = max(0.2, effective_years) / target_years
-            value = max(0.70 * domain_factor, ratio ** EXP_SHORTFALL_EXPONENT)
-            detail = f"{cv_years} yrs (needs {target_years:g}+) 🟡"
+            detail = f"{cv_years} yrs (Ideal Trainee fit ✅)" if domain_factor > 0 else f"{cv_years} yrs (No domain relevance) ❌"
+        elif cv_years <= 2.5:
+            value = 0.80 * domain_factor
+            detail = f"{cv_years} yrs (Slightly overqualified for Trainee)" if domain_factor > 0 else f"{cv_years} yrs (No domain relevance) ❌"
+        elif cv_years <= 3.5:
+            value = 0.60 * domain_factor
+            detail = f"{cv_years} yrs (Overqualified for Trainee) 🟡" if domain_factor > 0 else f"{cv_years} yrs (No domain relevance) ❌"
+        elif cv_years <= 4.5:
+            value = 0.40 * domain_factor
+            detail = f"{cv_years} yrs (Highly overqualified) ❌"
         else:
-            value = 0.90 * domain_factor
-            detail = f"{cv_years} yrs (needs {target_years:g}+) ✅"
+            value = 0.20 * domain_factor
+            detail = f"{cv_years} yrs (Mismatch for Trainee role) ❌"
         return Component("experience", min(1.0, value), True, detail)
 
-    # ── 4. Mid / Senior / Explicit Experience Requirement ────
+    # ── 3. Mid / Senior / Explicit Experience Requirement ────
     if required <= 0:
         span = 1.0 - EXP_NO_REQUIREMENT_FLOOR
-        curve = 1.0 - math.exp(-effective_years / EXP_SATURATION_YEARS)
+        curve = 1.0 - math.exp(-cv_years / EXP_SATURATION_YEARS)
         value = (EXP_NO_REQUIREMENT_FLOOR + span * curve) * domain_factor
         return Component(
             "experience", min(1.0, value), True,
-            f"{cv_years} yrs ({round(effective_years, 1)} yrs relevant in domain)"
+            f"{cv_years} yrs" if domain_factor > 0 else f"{cv_years} yrs (No domain relevance) ❌"
         )
 
-    ratio = effective_years / required
-    if ratio >= 1.0:
+    target_min = required
+    target_max = required + 2.0
+
+    if cv_years >= target_min and cv_years <= target_max:
+        # Sweet spot
         value = 1.0 * domain_factor
-        detail = f"{cv_years} yrs ({round(effective_years, 1)} yrs relevant in domain) ✅"
+        detail = f"{cv_years} yrs (Ideal target range ✅)" if domain_factor > 0 else f"{cv_years} yrs (No domain relevance) ❌"
+    elif cv_years > target_max:
+        # Slightly Over
+        value = 0.90 * domain_factor
+        detail = f"{cv_years} yrs (Slightly over target ✅)" if domain_factor > 0 else f"{cv_years} yrs (No domain relevance) ❌"
     else:
-        value = (ratio ** EXP_SHORTFALL_EXPONENT) * domain_factor
-        mark = "🟡" if ratio >= 0.5 else "❌"
-        detail = f"{cv_years} yrs ({round(effective_years, 1)} yrs relevant, needs {required:g}+) {mark}"
+        # Underqualified
+        if cv_years >= target_min - 1.0 and cv_years >= 0.5:
+            # Slightly under
+            value = 0.85 * domain_factor
+            detail = f"{cv_years} yrs (Slightly under target 🟡)" if domain_factor > 0 else f"{cv_years} yrs (No domain relevance) ❌"
+        else:
+            raw_ratio = cv_years / target_min
+            value = (raw_ratio ** EXP_SHORTFALL_EXPONENT) * domain_factor
+            mark = "🟡" if raw_ratio >= 0.5 else "❌"
+            detail = f"{cv_years} yrs (needs {target_min:g}+) {mark}" if domain_factor > 0 else f"{cv_years} yrs (No domain relevance) ❌"
 
     return Component("experience", min(1.0, value), True, detail)
 
@@ -244,7 +239,7 @@ def title_component(profile, cv_titles) -> Component:
 #  COMBINATION
 # ═══════════════════════════════════════════════════════════
 
-def combine(components, is_new_grad=False, profile=None,
+def combine(components, cv_years=0.0, is_new_grad=False, profile=None,
             must_have_coverage=None):
     """
     Renormalize weights over the available components, then apply
@@ -278,6 +273,26 @@ def combine(components, is_new_grad=False, profile=None,
         elif profile.effective_required_years > 0:
             combined *= NEW_GRAD_PENALTY
             notes.append("New-grad penalty (JD expects experience)")
+
+    # ── Global Role-Fit Multiplier ───────────────────────────
+    # Neutralize the "skill inflation" advantage of highly mismatched candidates.
+    if profile is not None:
+        prefers_freshers = profile.prefers_freshers or profile.seniority == "entry"
+        if prefers_freshers:
+            if cv_years > 4.5:
+                combined *= 0.60
+                notes.append("Major penalty: Highly overqualified for Trainee role")
+            elif cv_years > 3.0:
+                combined *= 0.75
+                notes.append("Penalty: Overqualified for Trainee role")
+        elif profile.effective_required_years >= 3.0:
+            # Mid/Senior role
+            if cv_years <= 1.0:
+                combined *= 0.60
+                notes.append(f"Major penalty: Severe experience mismatch (has {cv_years}y, needs {profile.effective_required_years}y)")
+            elif cv_years <= 2.0 and profile.effective_required_years >= 5.0:
+                combined *= 0.75
+                notes.append(f"Penalty: Underqualified for Senior role")
 
     # ── Must-have gate ───────────────────────────────────────
     # Proportional weighting above already handles partial gaps. The

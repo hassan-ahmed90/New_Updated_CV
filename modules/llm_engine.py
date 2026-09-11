@@ -158,7 +158,7 @@ Respond with ONLY valid JSON in this exact shape:
 """
 
 
-def _extract_evidence_quote(skill: str, cv_text: str) -> str:
+def extract_evidence_quote(skill: str, cv_text: str) -> str:
     """Extracts a short sentence/phrase from cv_text mentioning the skill or common aliases.
     Returns empty string if the skill is not actually found in the CV text."""
     if not cv_text or not skill:
@@ -207,12 +207,13 @@ def match_cv_to_requirements(jd_requirements: list, cv_text: str, detected_skill
     Raises LLMError on failure."""
     skills_hint = ""
     if detected_skills:
-        skills_hint = f"\nDETECTED CV SKILLS:\n{', '.join(detected_skills)}\n"
+        skills_hint = f"\nDETECTED CV SKILLS:\n{', '.join(detected_skills[:15])}\n"
 
+    # Compact targeted context to reduce token latency
     user_prompt = (
         "JOB REQUIREMENTS TO EVALUATE:\n" + "\n".join(f"- {r}" for r in jd_requirements)
         + skills_hint
-        + "\n\nCANDIDATE CV TEXT:\n" + cv_text[:1800]
+        + "\n\nCANDIDATE CV TEXT:\n" + cv_text[:1200]
     )
     result = _call_llm_json(_MATCH_SYSTEM_PROMPT, user_prompt, temperature=0.1)
     _validate_match_schema(result, jd_requirements, cv_text, detected_skills=detected_skills)

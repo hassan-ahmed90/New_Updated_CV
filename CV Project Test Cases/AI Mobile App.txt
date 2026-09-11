@@ -1,12 +1,8 @@
-Company: Sapphire Consulting Services
 
 Position: Trainee AI Mobile Developer
 
-Location: Jamshoro
 
-Contact / Apply: jobs@sapphire.co | 021 34300581-4 | www.sapphire.co
-
-Key Responsibilities
+Key Responsibilities:
 Develop and maintain mobile applications using Flutter & Dart.
 
 Integrate REST APIs & GraphQL services, handling JSON data.
