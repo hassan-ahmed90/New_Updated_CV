@@ -263,5 +263,5 @@ def build_profile(jd_text: str) -> JDProfile:
         bachelors_required=requires_bachelors(jd_text),
         skills=skills,
         must_have_skills=extract_must_have_skills(jd_text, skills),
-        education_fields=extract_education(clean_text(jd_text)),
+        education_fields=extract_education(jd_text),
     )

@@ -122,7 +122,7 @@ _NEXT_DEGREE_FENCE = re.compile(
 # section of the resume (e.g. reading a job's end year, or a
 # volunteer role's "Present", as if it were the degree's graduation year).
 _SECTION_FENCE = re.compile(
-    r'\b(?:work\s+experience|professional\s+experience|employment'
+    r'(?:\n|^)\s*(?:work\s+experience|professional\s+experience|employment'
     r'|projects?|organizations?|certifications?|achievements?'
     r'|publications?|references|volunteer(?:ing)?|extracurricular'
     r'|leadership\s+experience|internships?|awards?|activities'

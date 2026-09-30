@@ -12,20 +12,6 @@ def clean_text(text):
     """
     Clean text while preserving degree abbreviations
     """
-    # Normalize degree abbreviations to a standard format
-    # Convert "B.E", "B.E.", "BE" all to "BE" for consistent matching
-    text = re.sub(r'\bB\.?E\.?\b', 'BE', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bB\.?S\.?\b', 'BS', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bM\.?E\.?\b', 'ME', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bM\.?S\.?\b', 'MS', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bB\.?S\.?C\.?\b', 'BSC', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bM\.?S\.?C\.?\b', 'MSC', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bP\.?H\.?D\.?\b', 'PHD', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bM\.?B\.?A\.?\b', 'MBA', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bB\.?B\.?A\.?\b', 'BBA', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bL\.?L\.?B\.?\b', 'LLB', text, flags=re.IGNORECASE)
-    text = re.sub(r'\bM\.?P\.?H\.?I\.?L\.?\b', 'MPHIL', text, flags=re.IGNORECASE)
-    
     # Now convert to lowercase for case-insensitive matching
     text = text.lower()
     

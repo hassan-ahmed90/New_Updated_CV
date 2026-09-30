@@ -171,7 +171,7 @@ if st.button("▶️ Start Evaluation", use_container_width=True):
 
             # ── Education Fields (all fields found in CV) ──
             if has_deg:
-                cv_edu = extract_education(cleaned)
+                cv_edu = extract_education(raw_text)
                 candidate_fields_str = ", ".join(cv_edu).title() if cv_edu else "None Detected"
             else:
                 cv_edu = set()
