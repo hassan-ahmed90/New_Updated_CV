@@ -27,6 +27,8 @@ from modules.ranker import rank_candidates
 from modules.jd_profile import build_profile
 from modules.education import (
     extract_education,
+    extract_degree_fields,
+    extract_degree_labels,
     has_bachelors,
     extract_degree_years, format_degree_years,
 )
@@ -165,14 +167,19 @@ if st.button("▶️ Start Evaluation", use_container_width=True):
 
             # ── Per-degree graduation years ───────────────
             degree_years = extract_degree_years(raw_text)
-            degree_years_str = format_degree_years(degree_years)
+            degree_years_str = format_degree_years(degree_years, extract_degree_labels(raw_text))
             still_enrolled = degree_years.get("bachelors_in_progress", False)
             has_deg = has_bachelors(raw_text) or bool(degree_years)
 
             # ── Education Fields (all fields found in CV) ──
             if has_deg:
                 cv_edu = extract_education(raw_text)
-                candidate_fields_str = ", ".join(cv_edu).title() if cv_edu else "None Detected"
+                degree_fields = extract_degree_fields(raw_text)
+                if degree_fields:
+                    # One entry per degree, e.g. "BS Software Engineering, MS Data Science"
+                    candidate_fields_str = ", ".join(degree_fields)
+                else:
+                    candidate_fields_str = ", ".join(cv_edu).title() if cv_edu else "None Detected"
             else:
                 cv_edu = set()
                 candidate_fields_str = "None Detected"

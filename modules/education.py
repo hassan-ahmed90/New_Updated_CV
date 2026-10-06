@@ -382,7 +382,7 @@ def extract_degree_years(text: str) -> dict:
     return result
 
 
-def format_degree_years(degree_years: dict) -> str:
+def format_degree_years(degree_years: dict, labels: dict = None) -> str:
     """
     Convert degree_years dict to a human-readable display string.
 
@@ -392,9 +392,11 @@ def format_degree_years(degree_years: dict) -> str:
     {"bachelors": 2026, "bachelors_in_progress": True}
                                                   → "BE/BS 2026 (Expected)"
     {"bachelors": 2021, "masters": 2026}         → "BE/BS 2021 | MS 2026"
+    same, labels={"bachelors": "BE"}             → "BE 2021 | MS 2026"
     {"bachelors": None}                          → "BE/BS N/A"
     """
     LABELS = {"bachelors": "BE/BS", "masters": "MS", "mphil": "MPhil", "phd": "PhD"}
+    LABELS.update(labels or {})   # specific labels from the CV, e.g. {"bachelors": "BE"}
     ORDER  = ["bachelors", "masters", "mphil", "phd"]
     parts  = []
     for level in ORDER:
@@ -731,6 +733,201 @@ def match_education(jd_education: set, cv_education: set):
     return total_score, matched
 
 
+# ═══════════════════════════════════════════════════════════
+#  PER-DEGREE DISPLAY  ("BS Software Engineering", "MS Data Science")
+# ═══════════════════════════════════════════════════════════
+# Display only. Scoring still uses extract_education() above, which
+# returns an unordered set of domain names and cannot say which field
+# belongs to which degree.
+
+_DF_MONTH = (r'(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|'
+             r'aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)')
+# Bullets, brackets, dates and "present" that precede a degree on its line,
+# e.g. "[ 2020 – 2024 ] B.E ..." or "2020 – 2023 MPhil in ...".
+_DF_PREFIX_RE = re.compile(
+    r'^(?:[\s•◦∗*\[\]()\-–—|]+'
+    r'|\d{1,2}/(?:\d{1,2}/)?(?:19|20)\d{2}'
+    r'|(?:19|20)\d{2}'
+    r'|' + _DF_MONTH + r'\b\.?'
+    r'|present\b|current\b)+',
+    re.IGNORECASE,
+)
+_DF_WORD_RE = re.compile(
+    r"(?i:(?P<lvl>bachelor|master)(?:'?s)?\b(?:\s+degree)?"
+    r"(?:\s+(?:of|in)\s+(?P<kind>science|arts|engineering|technology)\b)?)"
+)
+_DF_ABBR_RE = re.compile(
+    r'(?P<abbr>B\.Sc|BSc|BSC|MSc|MSC|M\.Sc|BS|B\.S|MS|M\.S|BE|B\.E|ME|M\.E|BA|B\.A|MA|M\.A|'
+    r'BBA|MBA|BTech|B\.Tech|MTech|M\.Tech|MPhil|M\.Phil|PhD|Ph\.D)(?![A-Za-z])\.?'
+)
+_DF_ABBR_LABEL = {"BSC": "BSc", "MSC": "MSc", "MPHIL": "MPhil", "PHD": "PhD",
+                  "BTECH": "BTech", "MTECH": "MTech"}
+_DF_KIND_LABEL = {
+    "bachelor": {"science": "BS", "arts": "BA", "engineering": "BE", "technology": "BTech"},
+    "master":   {"science": "MS", "arts": "MA", "engineering": "ME", "technology": "MTech"},
+}
+# Short degree codes written after the field, e.g. "Software Engineering | BSSE".
+_DF_CODE_LABEL = {
+    "BSSE": ("BS", "Software Engineering"), "BSCS": ("BS", "Computer Science"),
+    "BSIT": ("BS", "Information Technology"), "BSAI": ("BS", "Artificial Intelligence"),
+    "BSDS": ("BS", "Data Science"),
+}
+_DF_CODE_RE = re.compile(r'^(?P<field>[A-Za-z&/ ]{3,50}?)\s*\|\s*(?P<code>BS[A-Z]{2,3})\b')
+_DF_INSTITUTION_RE = re.compile(
+    r'\b(?:university|institute|college|faculty|school|academy)\b', re.IGNORECASE)
+_DF_CUT_RE = re.compile(
+    r'\(\s*c?gpa|\bc?gpa\b|\||;|,|\[|:|•|\bat\b|\bfrom\b|\bgraduated\b|\bthesis\b|\bmajor\b|'
+    r'\b(?:19|20)\d{2}\b|\b' + _DF_MONTH + r'\b\.?\s+(?:19|20)\d{2}|'
+    r'\d+(?:\.\d+)?\s*/\s*\d|\s[-–—]\s',
+    re.IGNORECASE,
+)
+_DF_COUNTRY_RE = re.compile(r'^\s*,\s*(?:pakistan|usa|uk|uae|canada|australia|india)\b', re.IGNORECASE)
+_DF_LEVEL_ORDER = ["bachelors", "masters", "mphil", "phd"]
+_DF_SMALL_WORDS = {"and", "of", "in", "the", "for", "&"}
+_DF_ACRONYMS = {"AI", "ML", "IT", "CS", "NLP", "IOT", "HR", "BI"}
+
+
+def _df_prettify(field: str) -> str:
+    """Title-case ALL-CAPS fields; capitalise all-lowercase words elsewhere ("Software engineering")."""
+    all_caps = field.isupper()
+    words = []
+    for i, w in enumerate(field.split()):
+        if w.upper() in _DF_ACRONYMS and (all_caps or w.isupper()):
+            words.append(w.upper())
+        elif w.lower() in _DF_SMALL_WORDS and i > 0:
+            words.append(w.lower())
+        elif all_caps:
+            words.append(w[:1].upper() + w[1:].lower())
+        elif w[:1].islower():
+            words.append(w[:1].upper() + w[1:])
+        else:
+            words.append(w)
+    return " ".join(words)
+
+
+def _df_cut_field(raw: str) -> tuple:
+    """Trim text after a degree keyword down to the field of study.
+    Returns (field, ran_into_institution)."""
+    m = _DF_CUT_RE.search(raw)
+    head = raw[:m.start()] if m else raw
+    tail = raw[m.start():] if m else ""
+    inst = _DF_INSTITUTION_RE.search(head)
+    ran_into_institution = bool(inst)
+    if inst:
+        head = head[:inst.start()]
+    head = re.sub(r'\(\s*[A-Za-z.]{2,6}\s*\)', '', head)   # "(BSCs)", "(B.E.)"
+    head = head.strip(" \t-–—.:;,(")
+    if _DF_COUNTRY_RE.match(tail) and len(head.split()) > 1:
+        head = head.rsplit(" ", 1)[0]        # "Information Technology Jamshoro, Pakistan"
+    elif ran_into_institution:
+        # "Software Engineering Mehran University ..." — drop the campus name.
+        words = head.split()
+        if len(words) >= 3 and words[-1][:1].isupper():
+            head = " ".join(words[:-1])
+    return head.strip(), ran_into_institution
+
+
+def _parse_degrees(text: str) -> list:
+    """
+    Parse the Education section into (level, label, field) tuples, e.g.
+    ("bachelors", "BE", "Software Engineering"). A degree is only
+    recognised at the start of a line (after any date prefix), so
+    incidental words elsewhere in the section are ignored.
+    """
+    section = _extract_education_section(text)
+    lines = [ln.strip() for ln in section.split("\n")]
+    found = []   # (level, label, field)
+
+    for i, line in enumerate(lines):
+        if not line:
+            continue
+        body = _DF_PREFIX_RE.sub("", line)
+
+        code = _DF_CODE_RE.match(body)
+        if code and code.group("code") in _DF_CODE_LABEL:
+            label, field = _DF_CODE_LABEL[code.group("code")]
+            found.append(("bachelors", label, field))
+            continue
+
+        level = label = None
+        m = _DF_WORD_RE.match(body)
+        if m:
+            level = "bachelors" if m.group("lvl").lower() == "bachelor" else "masters"
+            kind = (m.group("kind") or "").lower()
+            label = _DF_KIND_LABEL[m.group("lvl").lower()].get(
+                kind, "BS" if level == "bachelors" else "MS")
+        else:
+            m = _DF_ABBR_RE.match(body)
+            if m:
+                key = re.sub(r'[.\s]', '', m.group("abbr")).upper()
+                label = _DF_ABBR_LABEL.get(key, re.sub(r'[.\s]', '', m.group("abbr")))
+                if key == "MPHIL":
+                    level = "mphil"
+                elif key == "PHD":
+                    level = "phd"
+                else:
+                    level = "bachelors" if key[0] == "B" else "masters"
+        if not m:
+            continue
+
+        # Strip "(Honours)", "(B.E.)", then a leading "in" / "of" / ":" / "-".
+        rest = body[m.end():]
+        for _ in range(4):
+            rest = re.sub(r'^\s*\([^)]{0,30}\)', '', rest)
+            rest = re.sub(r'^[\s:,.\-–]+', '', rest)
+            rest = re.sub(r'^(?:in|of)\b\s*', '', rest, flags=re.IGNORECASE)
+        rest = rest.strip()
+
+        # Field on the next line: "Bachelor of Science in" / "Advertising and" + "Marketing".
+        field, _ = _df_cut_field(rest)
+        dangling = bool(re.search(r'(?:\band|&|\bof|\bin)$', field, re.IGNORECASE))
+        if (not field or dangling) and i + 1 < len(lines):
+            nxt = lines[i + 1]
+            nxt_body = _DF_PREFIX_RE.sub("", nxt)
+            if (nxt and not _DF_INSTITUTION_RE.search(nxt)
+                    and not _DF_ABBR_RE.match(nxt_body) and not _DF_WORD_RE.match(nxt_body)):
+                field, _ = _df_cut_field((field + " " + nxt).strip())
+        field = re.sub(r'\s+(?:and|&|or|of|in)$', '', field, flags=re.IGNORECASE).strip()
+        if len(field) < 3 or not field[0].isalpha():
+            continue
+        found.append((level, label, _df_prettify(re.sub(r'\s+', ' ', field))))
+
+    return found
+
+
+def extract_degree_fields(text: str) -> list:
+    """
+    Return one display string per degree found in the Education section,
+    ordered bachelors → masters → MPhil → PhD:
+
+        ["BS Software Engineering", "MS Data Science"]
+        ["BSc Space Science", "MSc Space Science (Astrophysics)",
+         "MPhil Computational Astrophysics"]
+
+    Returns [] when nothing could be parsed, so callers can fall back.
+    """
+    found = _parse_degrees(text)
+    ordered, seen = [], set()
+    for level in _DF_LEVEL_ORDER:
+        for lvl, label, field in found:
+            key = (lvl, field.lower())
+            if lvl == level and key not in seen:
+                seen.add(key)
+                ordered.append(f"{label} {field}")
+    return ordered
+
+
+def extract_degree_labels(text: str) -> dict:
+    """
+    Degree label as written in the CV, per level: {"bachelors": "BE", "masters": "MS"}.
+    Used by format_degree_years so "BE" is shown as BE and "BS" as BS.
+    """
+    labels = {}
+    for level, label, _ in _parse_degrees(text):
+        labels.setdefault(level, label)
+    return labels
+
+
 def extract_raw_degree_fields(text: str) -> list:
     """
     Extract raw, unstructured field names (e.g. 'Petroleum Engineering',
@@ -791,4 +988,4 @@ def extract_raw_degree_fields(text: str) -> list:
             seen.add(f_title)
             unique_fields.append(f_title)
 
-    return unique_fields
+    return unique_fields

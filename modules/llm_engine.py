@@ -265,7 +265,7 @@ def _validate_match_schema(result: dict, jd_requirements: list, cv_text: str = "
         is_detected = req_norm in detected_set or any(req_norm == s for s in detected_set)
 
         # Extract genuine quote from CV text
-        evidence = custom_evidence.get(req_norm) or _extract_evidence_quote(req, cv_text)
+        evidence = custom_evidence.get(req_norm) or extract_evidence_quote(req, cv_text)
 
         # STRICT GUARDRAIL: Match is valid ONLY IF:
         # 1. Found in deterministic detected_skills, OR
